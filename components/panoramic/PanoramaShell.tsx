@@ -131,8 +131,19 @@ export function PanoramaShell() {
   }, [viewer, autoRotate, activeFloor, activeTime]);
 
   return (
-    <div className="relative w-full h-[calc(100vh-64px)] flex items-center justify-center z-10">
+    <div className="relative w-full h-screen flex items-center justify-center z-10">
       <PanoramaViewer floors={floors} activeFloor={activeFloor} activeTime={activeTime} onReady={handleReady} />
+      {/* Fixed top overlay logo with 1em padding */}
+      <div
+        className="fixed left-0 right-0 pointer-events-none z-30 flex justify-center"
+        style={{ top: "1em" }}
+      >
+        <img
+          src="/AshwinShethFinalLogo.svg"
+          alt="Ashwin Sheth Group"
+          className="object-contain drop-shadow-xl w-[320px] max-w-[80vw] h-auto"
+        />
+      </div>
       <FloorSidebar activeFloor={activeFloor} setActiveFloor={setActiveFloor} />
       <TimeSelector activeTime={activeTime} setActiveTime={setActiveTime} />
       <MobileMenu
