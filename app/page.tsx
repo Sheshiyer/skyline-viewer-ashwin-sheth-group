@@ -10,6 +10,8 @@ export default function HomePage() {
           alt="Ashwin Sheth Group"
           width={160}
           height={44}
+          loading="eager"
+          style={{ height: "auto" }}
           className="object-contain"
         />
       </header>

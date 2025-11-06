@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { loadPannellum } from "@/lib/pannellumLoader";
 import type { FloorConfig, TimeKey } from "@/lib/panoramaConfig";
 
@@ -15,14 +15,28 @@ export function PanoramaViewer({ floors, activeFloor, activeTime, onReady }: Pro
   const containerRef = useRef<HTMLDivElement | null>(null);
   const viewerRef = useRef<any>(null);
   const lastSceneRef = useRef<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const buildSceneConfig = (view: { image: string; hfov?: number; defaultYaw?: number; defaultPitch?: number }) => {
+    return {
+      type: "equirectangular",
+      panorama: view.image,
+      hfov: view.hfov ?? 90,
+      yaw: view.defaultYaw ?? 0,
+      pitch: view.defaultPitch ?? 0,
+      autoLoad: true,
+      showControls: false,
+    } as const;
+  };
 
   // init once
   useEffect(() => {
     let mounted = true;
 
     (async () => {
-      const pannellum = await loadPannellum();
-      if (!mounted || !containerRef.current) return;
+      try {
+        const pannellum = await loadPannellum();
+        if (!mounted || !containerRef.current) return;
 
       // Preload and resolve panorama URL with .jpg/.png fallback
       const preload = (url: string) =>
@@ -55,15 +69,7 @@ export function PanoramaViewer({ floors, activeFloor, activeTime, onReady }: Pro
           const view = floor.views[time];
           const id = `floor-${floor.id}-${time}`;
           const resolvedUrl = await resolvePanoramaUrl(view.image);
-          scenes[id] = {
-            type: "equirectangular",
-            panorama: resolvedUrl,
-            hfov: view.hfov ?? 90,
-            yaw: view.defaultYaw ?? 0,
-            pitch: view.defaultPitch ?? 0,
-            autoLoad: true,
-            showControls: false,
-          };
+          scenes[id] = buildSceneConfig({ ...view, image: resolvedUrl });
         }
       }
 
@@ -78,6 +84,10 @@ export function PanoramaViewer({ floors, activeFloor, activeTime, onReady }: Pro
 
       lastSceneRef.current = firstId;
       onReady?.(viewerRef.current);
+      } catch (e: any) {
+        console.error("Failed to initialize panorama viewer:", e);
+        setError("Failed to load panorama engine. Please check your network.");
+      }
     })();
 
     return () => {
@@ -100,11 +110,39 @@ export function PanoramaViewer({ floors, activeFloor, activeTime, onReady }: Pro
     const pitch = v.getPitch();
     const hfov = v.getHfov();
 
-    v.loadScene(targetId, {
-      pitch,
-      yaw,
-      hfov,
-    });
+    // Ensure the target scene exists; if missing add it dynamically from config
+    const cfg = v.getConfig?.();
+    const hasScene = !!cfg?.scenes?.[targetId];
+    if (!hasScene) {
+      const floorCfg = floors.find((f) => f.id === activeFloor);
+      const viewCfg = floorCfg?.views?.[activeTime];
+      if (!viewCfg) {
+        console.error("Scene config missing for", targetId);
+        return;
+      }
+      const sceneConfig = buildSceneConfig(viewCfg);
+      try {
+        v.addScene?.(targetId, sceneConfig);
+        console.debug("Added missing scene", { targetId, sceneConfig });
+      } catch (e) {
+        console.error("Failed adding scene", e);
+      }
+    }
+
+    console.debug("Switching scene", { targetId, yaw, pitch, hfov });
+    try {
+      // Use Pannellum's documented signature: (id, pitch?, yaw?, hfov?, fadeDuration?)
+      v.loadScene(targetId, pitch, yaw, hfov);
+    } catch (e) {
+      console.error("loadScene error with preserved view values, retrying default", e);
+      try {
+        v.loadScene(targetId);
+      } catch (err) {
+        console.error("loadScene default retry failed", err);
+        setError("Failed to load the selected panorama scene.");
+        return;
+      }
+    }
 
     lastSceneRef.current = targetId;
   }, [activeFloor, activeTime]);
@@ -115,6 +153,15 @@ export function PanoramaViewer({ floors, activeFloor, activeTime, onReady }: Pro
       className="relative flex items-center justify-center w-full h-full rounded-3xl overflow-hidden bg-[radial-gradient(circle_at_top,_#111827,_#020817)]"
       aria-label="360 degree panoramic building view"
       role="img"
-    />
+    >
+      {error && (
+        <div className="absolute inset-0 flex items-center justify-center text-center p-6 text-sm text-slate-200 bg-slate-900/60">
+          <div>
+            <p className="mb-2 font-medium">{error}</p>
+            <p className="opacity-80">Try reloading the page or checking if the CDN is blocked. We now try multiple sources automatically.</p>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
